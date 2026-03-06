@@ -76,7 +76,7 @@ public class UrlController {
                 request.getShortCode()
             );
             
-            logger.info("POST /api/urls/shorten - Completed with status: {}", response.getStatus());
+            logger.info("POST /api/urls/shorten - Completed with status code: {}", response.getCode());
             return response;
             
         } catch (Exception e) {
@@ -118,7 +118,7 @@ public class UrlController {
                 request.getExpiryDate()
             );
             
-            logger.info("POST /api/urls/shorten/custom - Completed with status: {}", response.getStatus());
+            logger.info("POST /api/urls/shorten/custom - Completed with status code: {}", response.getCode());
             return response;
             
         } catch (Exception e) {
@@ -138,7 +138,7 @@ public class UrlController {
         try {
             ApiResponse<String> response = urlService.getOriginalUrl(shortCode);
             
-            logger.info("GET /api/urls/{} - Completed with status: {}", shortCode, response.getStatus());
+            logger.info("GET /api/urls/{} - Completed with status code: {}", shortCode, response.getCode());
             return response;
             
         } catch (Exception e) {
@@ -169,7 +169,7 @@ public class UrlController {
         try {
             ApiResponse<Boolean> response = urlService.deleteShortUrl(shortCode, currentUser);
             
-            logger.info("DELETE /api/urls/{} - Completed with status: {}", shortCode, response.getStatus());
+            logger.info("DELETE /api/urls/{} - Completed with status code: {}", shortCode, response.getCode());
             return response;
             
         } catch (Exception e) {

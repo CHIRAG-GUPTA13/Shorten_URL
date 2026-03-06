@@ -29,9 +29,9 @@ public class UrlPreferenceController {
     @GetMapping
     public ApiResponse<List<UrlPreference>> getPreferences(
             @RequestParam(required = false) Long userId) {
-        
         if (userId != null) {
-            return urlPreferenceService.getPreferencesForUser(userId);
+            return ApiResponse.success(urlPreferenceService.getPreferencesForUser(userId));
+
         } else {
             return urlPreferenceService.getGlobalDefaults();
         }
