@@ -49,6 +49,9 @@ public final class ResponseCode {
     public static final int SHORT_CODE_EXISTS_CODE = 4003;
     public static final String SHORT_CODE_EXISTS_MESSAGE = "Short code already exists";
     
+    public static final int URL_EXPIRED_CODE = 4004;
+    public static final String URL_EXPIRED_MESSAGE = "URL has expired";
+    
     // Preference-specific codes
     public static final int PREFERENCE_NOT_FOUND_CODE = 5001;
     public static final String PREFERENCE_NOT_FOUND_MESSAGE = "Preference not found";

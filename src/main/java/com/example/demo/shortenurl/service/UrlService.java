@@ -3,12 +3,14 @@ package com.example.demo.shortenurl.service;
 import com.example.demo.shortenurl.dto.ApiResponse;
 import com.example.demo.shortenurl.dto.ResponseCode;
 import com.example.demo.shortenurl.entity.Url;
+import com.example.demo.shortenurl.entity.User;
 import com.example.demo.shortenurl.repository.ClickEventRepository;
 import com.example.demo.shortenurl.repository.UrlRepository;
 import com.example.demo.shortenurl.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 
@@ -34,13 +36,15 @@ public class UrlService {
     /**
      * Generate a short URL from the original URL.
      * @param originalUrl The URL to shorten
+     * @param user The user who owns the URL
+     * @param expiresAt Optional expiration date/time
      * @return ApiResponse containing the short code
      */
-    public ApiResponse<String> generateShortUrl(String originalUrl) {
+    public ApiResponse<String> generateShortUrl(String originalUrl, User user, LocalDateTime expiresAt) {
         try {
             validateUrl(originalUrl);
             
-            // Get user preferences for strategy (placeholder for now)
+            // Generate random short code
             String shortCode = generateShortCode();
             
             Url url = new Url();
@@ -48,6 +52,9 @@ public class UrlService {
             url.setShortCode(shortCode);
             url.setCreatedAt(LocalDateTime.now());
             url.setIsActive(true);
+            url.setExpiresAt(expiresAt);
+            url.setUser(user);
+            
             urlRepository.save(url);
             
             return ApiResponse.success("URL shortened successfully", shortCode);
@@ -63,9 +70,11 @@ public class UrlService {
      * Generate a short URL with custom short code.
      * @param originalUrl The URL to shorten
      * @param customShortCode The desired short code
+     * @param user The user who owns the URL
+     * @param expiresAt Optional expiration date/time
      * @return ApiResponse containing the short code
      */
-    public ApiResponse<String> generateCustomShortUrl(String originalUrl, String customShortCode) {
+    public ApiResponse<String> generateCustomShortUrl(String originalUrl, String customShortCode, User user, LocalDateTime expiresAt) {
         try {
             validateUrl(originalUrl);
             
@@ -78,6 +87,11 @@ public class UrlService {
             Url url = new Url();
             url.setOriginalUrl(originalUrl);
             url.setShortCode(customShortCode);
+            url.setCreatedAt(LocalDateTime.now());
+            url.setIsActive(true);
+            url.setExpiresAt(expiresAt);
+            url.setUser(user);
+            
             urlRepository.save(url);
             
             return ApiResponse.success("URL shortened successfully with custom code", customShortCode);
@@ -91,16 +105,27 @@ public class UrlService {
 
     /**
      * Get the original URL from a short code.
+     * Only resolves URLs where isActive is true.
+     * Returns error if URL has expired.
      * @param shortCode The short code to look up
      * @return ApiResponse containing the original URL
      */
     public ApiResponse<String> getOriginalUrl(String shortCode) {
         try {
-            Optional<Url> urlOpt = urlRepository.findByShortCode(shortCode);
+            // Use the new method to find active URL by short code
+            Optional<Url> urlOpt = urlRepository.findByShortCodeAndIsActiveTrue(shortCode);
             
             if (urlOpt.isPresent()) {
-                return ApiResponse.success(urlOpt.get().getOriginalUrl());
+                Url url = urlOpt.get();
+                
+                // Check if URL has expired
+                if (url.getExpiresAt() != null && LocalDateTime.now().isAfter(url.getExpiresAt())) {
+                    return ApiResponse.error(ResponseCode.URL_EXPIRED_CODE, ResponseCode.URL_EXPIRED_MESSAGE);
+                }
+                
+                return ApiResponse.success(url.getOriginalUrl());
             } else {
+                // URL not found or not active - return 4002 error
                 return ApiResponse.error(ResponseCode.URL_NOT_FOUND_CODE, ResponseCode.URL_NOT_FOUND_MESSAGE);
             }
             
@@ -128,6 +153,15 @@ public class UrlService {
         } catch (Exception e) {
             return ApiResponse.error(ResponseCode.INTERNAL_ERROR_CODE, "Failed to delete URL: " + e.getMessage());
         }
+    }
+
+    /**
+     * Get all active URLs for a specific user.
+     * @param user The user to find URLs for
+     * @return List of active URLs owned by the user
+     */
+    public List<Url> getUrlsByUser(User user) {
+        return urlRepository.findByUserAndIsActiveTrue(user);
     }
 
     private void validateUrl(String originalUrl) {
