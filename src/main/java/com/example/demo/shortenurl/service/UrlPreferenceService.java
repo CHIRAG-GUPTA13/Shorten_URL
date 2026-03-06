@@ -27,7 +27,23 @@ public class UrlPreferenceService {
      * Get preferences for a specific user.
      * Returns user-specific preferences if available, otherwise returns global defaults.
      */
-    public ApiResponse<List<UrlPreference>> getPreferencesForUser(Long userId) {
+    public List<UrlPreference> getPreferencesForUser(Long userId) {
+        List<UrlPreference> userPrefs = urlPreferenceRepository.findByUserId(userId);
+        
+        // If user has specific preferences, return those
+        if (!userPrefs.isEmpty()) {
+            return userPrefs;
+        }
+        
+        // Otherwise, return global defaults
+        return urlPreferenceRepository.findGlobalDefaults();
+    }
+
+    /**
+     * Get preferences for a specific user (wrapped in ApiResponse).
+     * Returns user-specific preferences if available, otherwise returns global defaults.
+     */
+    public ApiResponse<List<UrlPreference>> getPreferencesForUserResponse(Long userId) {
         List<UrlPreference> userPrefs = urlPreferenceRepository.findByUserId(userId);
         
         // If user has specific preferences, return those

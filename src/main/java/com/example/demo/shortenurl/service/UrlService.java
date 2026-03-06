@@ -7,7 +7,11 @@ import com.example.demo.shortenurl.entity.Url;
 import com.example.demo.shortenurl.entity.User;
 import com.example.demo.shortenurl.exception.ResourceNotFoundException;
 import com.example.demo.shortenurl.exception.UnauthorizedException;
+import com.example.demo.shortenurl.entity.CodePool;
+import com.example.demo.shortenurl.entity.UrlPreference;
+import com.example.demo.shortenurl.entity.UrlPreference.StrategyType;
 import com.example.demo.shortenurl.repository.ClickEventRepository;
+import com.example.demo.shortenurl.repository.CodePoolRepository;
 import com.example.demo.shortenurl.repository.UrlRepository;
 import com.example.demo.shortenurl.repository.UserRepository;
 import org.slf4j.Logger;
@@ -32,32 +36,42 @@ public class UrlService {
     private final UserRepository userRepository;
     private final ClickEventRepository clickEventRepository;
     private final UrlPreferenceService urlPreferenceService;
+    private final CodePoolRepository codePoolRepository;
     
     public UrlService(UrlRepository urlRepository, UserRepository userRepository, 
-                      ClickEventRepository clickEventRepository, UrlPreferenceService urlPreferenceService) {
+                      ClickEventRepository clickEventRepository, UrlPreferenceService urlPreferenceService,
+                      CodePoolRepository codePoolRepository) {
         this.urlRepository = urlRepository;
         this.userRepository = userRepository;
         this.clickEventRepository = clickEventRepository;
         this.urlPreferenceService = urlPreferenceService;
+        this.codePoolRepository = codePoolRepository;
     }
 
     /**
-     * Generate a short URL from the original URL.
+     * Generate a short URL from the original URL using strategy-based code generation.
      * @param originalUrl The URL to shorten
      * @param user The user who owns the URL
      * @param expiresAt Optional expiration date/time
+     * @param customCode Optional custom short code from request
      * @return ApiResponse containing the short code
      */
-    public ApiResponse<String> generateShortUrl(String originalUrl, User user, LocalDateTime expiresAt) {
-        logger.info("Generating short URL for originalUrl: {}, userId: {}, expiresAt: {}", 
-            originalUrl, user != null ? user.getId() : null, expiresAt);
+    public ApiResponse<String> generateShortUrl(String originalUrl, User user, LocalDateTime expiresAt, String customCode) {
+        logger.info("Generating short URL for originalUrl: {}, userId: {}, expiresAt: {}, customCode: {}", 
+            originalUrl, user != null ? user.getId() : null, expiresAt, customCode);
         
         try {
             validateUrl(originalUrl);
             logger.debug("URL validation passed for: {}", originalUrl);
             
-            // Generate random short code
-            String shortCode = generateShortCode();
+            // Generate short code using strategy-based approach
+            String shortCode = generateShortCodeWithStrategy(user, customCode);
+            
+            if (shortCode == null) {
+                logger.error("Failed to generate short code using any strategy");
+                return ApiResponse.error(ResponseCode.INTERNAL_ERROR_CODE, "Failed to generate short code");
+            }
+            
             logger.debug("Generated short code: {}", shortCode);
             
             Url url = new Url();
@@ -80,6 +94,147 @@ public class UrlService {
             logger.error("Failed to shorten URL: {}", originalUrl, e);
             return ApiResponse.error(ResponseCode.INTERNAL_ERROR_CODE, "Failed to shorten URL: " + e.getMessage());
         }
+    }
+
+    /**
+     * Generate short code using strategy-based approach.
+     * @param user The user who owns the URL
+     * @param customCode Optional custom short code from request
+     * @return Generated short code or null if failed
+     */
+    private String generateShortCodeWithStrategy(User user, String customCode) {
+        Long userId = user != null ? user.getId() : null;
+        
+        // Get user preferences or global defaults
+        List<UrlPreference> preferences = urlPreferenceService.getPreferencesForUser(userId);
+        
+        // Filter only enabled preferences
+        List<UrlPreference> enabledPrefs = preferences.stream()
+            .filter(UrlPreference::getIsEnabled)
+            .collect(Collectors.toList());
+        
+        logger.debug("Found {} enabled preferences for userId: {}", enabledPrefs.size(), userId);
+        
+        String shortCode = null;
+        boolean customCodeUsed = false;
+        
+        // Iterate through strategies in priority order
+        for (UrlPreference pref : enabledPrefs) {
+            StrategyType strategy = pref.getStrategy();
+            logger.debug("Trying strategy: {} for userId: {}", strategy, userId);
+            
+            switch (strategy) {
+                case RANDOM:
+                    shortCode = tryRandomStrategy();
+                    if (shortCode != null) {
+                        logger.info("Successfully generated code using RANDOM strategy: {}", shortCode);
+                        return shortCode;
+                    }
+                    break;
+                    
+                case CUSTOM:
+                    if (customCode != null && !customCode.isEmpty()) {
+                        // Validate custom code
+                        if (!isValidCustomCode(customCode)) {
+                            logger.warn("Invalid custom code format: {}", customCode);
+                            return null;
+                        }
+                        
+                        // Check if custom code is already taken
+                        if (!isShortCodeAvailable(customCode)) {
+                            logger.warn("Custom short code already exists: {}", customCode);
+                            return null; // Will trigger error in generateShortUrl
+                        }
+                        
+                        shortCode = customCode;
+                        customCodeUsed = true;
+                        logger.info("Using custom code from request: {}", shortCode);
+                        return shortCode;
+                    }
+                    break;
+                    
+                case USER_PREFERENCE:
+                    shortCode = tryUserPreferenceStrategy(userId);
+                    if (shortCode != null) {
+                        logger.info("Successfully generated code using USER_PREFERENCE strategy: {}", shortCode);
+                        return shortCode;
+                    }
+                    break;
+                    
+                default:
+                    logger.warn("Unknown strategy type: {}", strategy);
+            }
+        }
+        
+        // Fallback to RANDOM strategy if no strategy produced a code
+        logger.info("No strategy produced a valid code, falling back to RANDOM strategy");
+        return tryRandomStrategy();
+    }
+
+    /**
+     * Try to generate a random short code.
+     * @return Generated code or null if failed
+     */
+    private String tryRandomStrategy() {
+        for (int i = 0; i < 10; i++) {
+            String code = generateShortCode();
+            if (isShortCodeAvailable(code)) {
+                return code;
+            }
+            logger.debug("Generated random code {} is already taken, trying again", code);
+        }
+        logger.warn("Failed to generate unique random code after 10 attempts");
+        return null;
+    }
+
+    /**
+     * Try to get a code from the user's preference pool.
+     * @param userId The user ID
+     * @return Pool code or null if failed
+     */
+    private String tryUserPreferenceStrategy(Long userId) {
+        try {
+            Optional<CodePool> poolCodeOpt = codePoolRepository.findFirstByIsUsedFalse();
+            
+            if (poolCodeOpt.isPresent()) {
+                CodePool poolCode = poolCodeOpt.get();
+                
+                // Mark as used
+                poolCode.setIsUsed(true);
+                poolCode.setAssignedUserId(userId);
+                codePoolRepository.save(poolCode);
+                
+                logger.info("Retrieved code from pool: {}", poolCode.getCode());
+                return poolCode.getCode();
+            } else {
+                logger.warn("No available codes in pool for userId: {}", userId);
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Error retrieving code from pool for userId: {}", userId, e);
+            return null;
+        }
+    }
+
+    /**
+     * Check if a short code is available (not already in use).
+     * @param shortCode The short code to check
+     * @return true if available, false if already taken
+     */
+    private boolean isShortCodeAvailable(String shortCode) {
+        return !urlRepository.existsByShortCode(shortCode);
+    }
+
+    /**
+     * Validate custom code format.
+     * @param customCode The custom code to validate
+     * @return true if valid, false otherwise
+     */
+    private boolean isValidCustomCode(String customCode) {
+        if (customCode == null || customCode.length() < 3 || customCode.length() > 20) {
+            return false;
+        }
+        return customCode.matches("^[a-zA-Z0-9_]+$");
     }
 
     /**

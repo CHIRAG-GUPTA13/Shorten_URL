@@ -72,7 +72,8 @@ public class UrlController {
             ApiResponse<String> response = urlService.generateShortUrl(
                 request.getOriginalUrl(), 
                 currentUser, 
-                request.getExpiryDate()
+                request.getExpiryDate(),
+                request.getShortCode()
             );
             
             logger.info("POST /api/urls/shorten - Completed with status: {}", response.getStatus());

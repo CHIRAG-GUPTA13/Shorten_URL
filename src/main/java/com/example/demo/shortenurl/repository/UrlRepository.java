@@ -28,4 +28,9 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
      * @return Optional containing the URL if found and active
      */
     Optional<Url> findByShortCodeAndIsActiveTrue(String shortCode);
+    
+    /**
+     * Check if a short code already exists in the database.
+     */
+    boolean existsByShortCode(String shortCode);
 }
