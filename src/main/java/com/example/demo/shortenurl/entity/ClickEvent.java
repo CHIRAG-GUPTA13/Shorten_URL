@@ -30,6 +30,9 @@ public class ClickEvent {
     @Column(name = "BROWSER", length = 100)
     private String browser;
 
+    @Column(name = "USERAGENT", length = 500)
+    private String userAgent;
+
     @Column(name = "REFERER", length = 500)
     private String referer;
 
@@ -53,6 +56,9 @@ public class ClickEvent {
 
     public String getBrowser() { return browser; }
     public void setBrowser(String browser) { this.browser = browser; }
+
+    public String getUserAgent() { return userAgent; }
+    public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
 
     public String getReferer() { return referer; }
     public void setReferer(String referer) { this.referer = referer; }

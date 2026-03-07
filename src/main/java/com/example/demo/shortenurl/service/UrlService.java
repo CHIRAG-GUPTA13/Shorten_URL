@@ -406,6 +406,17 @@ public class UrlService {
             throw new IllegalArgumentException("Invalid URL format - must start with http:// or https://");
         }
     }
+    
+    /**
+     * Find a URL by short code (without any validation).
+     * Used for stats and admin operations.
+     * @param shortCode The short code to search for
+     * @return Optional containing the URL if found
+     */
+    public Optional<Url> findByShortCode(String shortCode) {
+        logger.debug("Finding URL by shortCode: {}", shortCode);
+        return urlRepository.findByShortCode(shortCode);
+    }
 
     private String generateShortCode() {
         // Generate a random alphanumeric string of fixed length

@@ -2,17 +2,27 @@ package com.example.demo.shortenurl.controller;
 
 import com.example.demo.shortenurl.config.CustomUserDetails;
 import com.example.demo.shortenurl.dto.ApiResponse;
+import com.example.demo.shortenurl.dto.MyUrlsStatsDto;
 import com.example.demo.shortenurl.dto.UrlResponseDto;
 import com.example.demo.shortenurl.dto.UrlShortenRequest;
+import com.example.demo.shortenurl.dto.UrlStatsDto;
+import com.example.demo.shortenurl.entity.ClickEvent;
+import com.example.demo.shortenurl.entity.Url;
 import com.example.demo.shortenurl.entity.User;
+import com.example.demo.shortenurl.repository.ClickEventRepository;
+import com.example.demo.shortenurl.service.ClickEventService;
 import com.example.demo.shortenurl.service.UrlService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * REST Controller for URL shortening operations.
@@ -24,9 +34,14 @@ public class UrlController {
     private static final Logger logger = LoggerFactory.getLogger(UrlController.class);
 
     private final UrlService urlService;
+    private final ClickEventService clickEventService;
+    private final ClickEventRepository clickEventRepository;
 
-    public UrlController(UrlService urlService) {
+    public UrlController(UrlService urlService, ClickEventService clickEventService, 
+                         ClickEventRepository clickEventRepository) {
         this.urlService = urlService;
+        this.clickEventService = clickEventService;
+        this.clickEventRepository = clickEventRepository;
     }
 
     /**
@@ -130,13 +145,25 @@ public class UrlController {
     /**
      * Get original URL from short code
      * GET /api/urls/{shortCode}
+     * Records click event asynchronously on successful redirect
      */
     @GetMapping("/{shortCode}")
-    public ApiResponse<String> getOriginalUrl(@PathVariable String shortCode) {
+    public ApiResponse<String> getOriginalUrl(@PathVariable String shortCode, HttpServletRequest request) {
         logger.info("GET /api/urls/{} - Request received", shortCode);
         
         try {
             ApiResponse<String> response = urlService.getOriginalUrl(shortCode);
+            
+            // Record click event asynchronously if the URL was found successfully
+            if (response.getCode() == 200) {
+                String ipAddress = getClientIpAddress(request);
+                String userAgent = request.getHeader("User-Agent");
+                String referer = request.getHeader("Referer");
+                
+                // Record click asynchronously - this won't block the response
+                clickEventService.recordClick(shortCode, ipAddress, userAgent, referer);
+                logger.debug("Triggered async click recording for shortCode: {}", shortCode);
+            }
             
             logger.info("GET /api/urls/{} - Completed with status code: {}", shortCode, response.getCode());
             return response;
@@ -145,6 +172,25 @@ public class UrlController {
             logger.error("GET /api/urls/{} - Error processing request", shortCode, e);
             throw e;
         }
+    }
+    
+    /**
+     * Get client IP address from request.
+     * Handles proxies and load balancers.
+     */
+    private String getClientIpAddress(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        // If multiple IPs, take the first one
+        if (ip != null && ip.contains(",")) {
+            ip = ip.trim().split(",")[0];
+        }
+        return ip;
     }
 
     /**
@@ -205,6 +251,102 @@ public class UrlController {
             
         } catch (Exception e) {
             logger.error("GET /api/urls/my-urls - Error processing request", e);
+            throw e;
+        }
+    }
+    
+    /**
+     * Get click statistics for a specific short URL (Public endpoint)
+     * GET /api/urls/{shortCode}/stats
+     * Returns: shortCode, totalClicks, firstClick, lastClick
+     */
+    @GetMapping("/{shortCode}/stats")
+    public ApiResponse<UrlStatsDto> getUrlStats(@PathVariable String shortCode) {
+        logger.info("GET /api/urls/{}/stats - Request received", shortCode);
+        
+        try {
+            // Verify the URL exists
+            var urlOpt = urlService.findByShortCode(shortCode);
+            if (urlOpt.isEmpty()) {
+                logger.warn("GET /api/urls/{}/stats - Short URL not found", shortCode);
+                return ApiResponse.error(404, "Short URL not found");
+            }
+            
+            // Get click statistics
+            long totalClicks = clickEventRepository.countByShortCode(shortCode);
+            var firstClick = clickEventRepository.findFirstByShortCodeOrderByClickedAtAsc(shortCode);
+            var lastClick = clickEventRepository.findFirstByShortCodeOrderByClickedAtDesc(shortCode);
+            
+            UrlStatsDto stats = new UrlStatsDto(
+                shortCode,
+                totalClicks,
+                firstClick.map(ClickEvent::getClickedAt).orElse(null),
+                lastClick.map(ClickEvent::getClickedAt).orElse(null)
+            );
+            
+            logger.info("GET /api/urls/{}/stats - Found {} clicks", shortCode, totalClicks);
+            return ApiResponse.success("Stats retrieved successfully", stats);
+            
+        } catch (Exception e) {
+            logger.error("GET /api/urls/{}/stats - Error processing request", shortCode, e);
+            throw e;
+        }
+    }
+    
+    /**
+     * Get click statistics for all URLs owned by the authenticated user (Protected)
+     * GET /api/urls/my-urls/stats
+     * Returns click counts per URL for the authenticated user
+     */
+    @GetMapping("/my-urls/stats")
+    public ApiResponse<List<MyUrlsStatsDto>> getMyUrlsStats() {
+        logger.info("GET /api/urls/my-urls/stats - Request received");
+        
+        // Extract user from SecurityContextHolder
+        User currentUser = getCurrentUser();
+        
+        if (currentUser == null) {
+            logger.warn("GET /api/urls/my-urls/stats - User not authenticated");
+            return ApiResponse.error(401, "User not authenticated");
+        }
+        
+        logger.debug("GET /api/urls/my-urls/stats - Processing request for userId: {}", currentUser.getId());
+        
+        try {
+            // Get all URLs for the user
+            List<UrlResponseDto> userUrls = urlService.getUrlsByUser(currentUser);
+            
+            if (userUrls.isEmpty()) {
+                return ApiResponse.success("No URLs found", new ArrayList<>());
+            }
+            
+            // Get short codes
+            List<String> shortCodes = userUrls.stream()
+                .map(UrlResponseDto::getShortCode)
+                .collect(Collectors.toList());
+            
+            // Get click counts grouped by short code
+            List<Object[]> clickCounts = clickEventRepository.countByShortCodeInGroupBy(shortCodes);
+            Map<String, Long> clickCountMap = clickCounts.stream()
+                .collect(Collectors.toMap(
+                    obj -> (String) obj[0],
+                    obj -> (Long) obj[1]
+                ));
+            
+            // Build stats list
+            List<MyUrlsStatsDto> stats = userUrls.stream()
+                .map(url -> new MyUrlsStatsDto(
+                    url.getShortCode(),
+                    url.getOriginalUrl(),
+                    clickCountMap.getOrDefault(url.getShortCode(), 0L)
+                ))
+                .collect(Collectors.toList());
+            
+            logger.info("GET /api/urls/my-urls/stats - Found {} URLs with click data", stats.size());
+            return ApiResponse.success("Stats retrieved successfully", stats);
+            
+        } catch (Exception e) {
+            logger.error("GET /api/urls/my-urls/stats - Error processing request", e);
             throw e;
         }
     }

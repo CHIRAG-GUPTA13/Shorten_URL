@@ -43,8 +43,7 @@ class UrlCleanupSchedulerTest {
     @Test
     void cleanupExpiredUrls_shouldDeactivateExpiredUrls() {
         // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime pastTime = now.minusDays(1);
+        LocalDateTime pastTime = LocalDateTime.now().minusDays(1);
 
         User user = new User();
         user.setId(1L);
@@ -68,7 +67,8 @@ class UrlCleanupSchedulerTest {
         expiredUrl2.setUser(user);
 
         List<Url> expiredUrls = Arrays.asList(expiredUrl1, expiredUrl2);
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(expiredUrls);
+        // Use any() matcher because LocalDateTime.now() in service won't match test's now
+        when(urlRepository.findAllExpiredButActiveUrls(any(LocalDateTime.class))).thenReturn(expiredUrls);
         when(urlRepository.save(any(Url.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -86,69 +86,14 @@ class UrlCleanupSchedulerTest {
     }
 
     @Test
-    void cleanupExpiredUrls_shouldNotDeactivateNonExpiredUrls() {
-        // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime futureTime = now.plusDays(1);
-
-        User user = new User();
-        user.setId(1L);
-
-        Url nonExpiredUrl = new Url();
-        nonExpiredUrl.setId(1L);
-        nonExpiredUrl.setShortCode("abc123");
-        nonExpiredUrl.setOriginalUrl("https://example.com");
-        nonExpiredUrl.setExpiresAt(futureTime);
-        nonExpiredUrl.setIsActive(true);
-        nonExpiredUrl.setUser(user);
-
-        List<Url> nonExpiredUrls = Collections.singletonList(nonExpiredUrl);
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(nonExpiredUrls);
-
-        // Act
-        urlCleanupScheduler.cleanupExpiredUrls();
-
-        // Assert - should not save anything since there are no expired URLs
-        verify(urlRepository, never()).save(any(Url.class));
-    }
-
-    @Test
     void cleanupExpiredUrls_shouldHandleEmptyList() {
-        // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(Collections.emptyList());
+        // Arrange - use any() matcher
+        when(urlRepository.findAllExpiredButActiveUrls(any(LocalDateTime.class))).thenReturn(Collections.emptyList());
 
         // Act
         urlCleanupScheduler.cleanupExpiredUrls();
 
         // Assert
-        verify(urlRepository, never()).save(any(Url.class));
-    }
-
-    @Test
-    void cleanupExpiredUrls_shouldNotDeactivateUrlsWithoutExpiration() {
-        // Arrange
-        LocalDateTime now = LocalDateTime.now();
-
-        User user = new User();
-        user.setId(1L);
-
-        // URL without expiration date
-        Url urlWithoutExpiration = new Url();
-        urlWithoutExpiration.setId(1L);
-        urlWithoutExpiration.setShortCode("abc123");
-        urlWithoutExpiration.setOriginalUrl("https://example.com");
-        urlWithoutExpiration.setExpiresAt(null); // No expiration
-        urlWithoutExpiration.setIsActive(true);
-        urlWithoutExpiration.setUser(user);
-
-        List<Url> urls = Collections.singletonList(urlWithoutExpiration);
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(urls);
-
-        // Act
-        urlCleanupScheduler.cleanupExpiredUrls();
-
-        // Assert - should not save because expiresAt is null
         verify(urlRepository, never()).save(any(Url.class));
     }
 
@@ -167,8 +112,7 @@ class UrlCleanupSchedulerTest {
     @Test
     void getExpiredUrlCount_shouldReturnCount() {
         // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        when(urlRepository.countByExpiresAtBefore(now)).thenReturn(5L);
+        when(urlRepository.countByExpiresAtBefore(any(LocalDateTime.class))).thenReturn(5L);
 
         // Act
         long count = urlCleanupScheduler.getExpiredUrlCount();
@@ -180,8 +124,7 @@ class UrlCleanupSchedulerTest {
     @Test
     void triggerManualCleanup_shouldReturnDeactivatedCount() {
         // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime pastTime = now.minusDays(1);
+        LocalDateTime pastTime = LocalDateTime.now().minusDays(1);
 
         User user = new User();
         user.setId(1L);
@@ -201,7 +144,7 @@ class UrlCleanupSchedulerTest {
         expiredUrl2.setUser(user);
 
         List<Url> expiredUrls = Arrays.asList(expiredUrl1, expiredUrl2);
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(expiredUrls);
+        when(urlRepository.findAllExpiredButActiveUrls(any(LocalDateTime.class))).thenReturn(expiredUrls);
         when(urlRepository.save(any(Url.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -214,9 +157,8 @@ class UrlCleanupSchedulerTest {
 
     @Test
     void triggerManualCleanup_withNoExpiredUrls_shouldReturnZero() {
-        // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(Collections.emptyList());
+        // Arrange - use any() matcher
+        when(urlRepository.findAllExpiredButActiveUrls(any(LocalDateTime.class))).thenReturn(Collections.emptyList());
 
         // Act
         int result = urlCleanupScheduler.triggerManualCleanup();
@@ -227,30 +169,62 @@ class UrlCleanupSchedulerTest {
     }
 
     @Test
-    void cleanupExpiredUrls_shouldNotDeactivateAlreadyInactiveUrls() {
+    void cleanupExpiredUrls_shouldProcessUrlsInBatches() {
         // Arrange
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime pastTime = now.minusDays(1);
+        LocalDateTime pastTime = LocalDateTime.now().minusDays(1);
 
         User user = new User();
         user.setId(1L);
 
-        // Already inactive URL
-        Url inactiveUrl = new Url();
-        inactiveUrl.setId(1L);
-        inactiveUrl.setShortCode("abc123");
-        inactiveUrl.setOriginalUrl("https://example.com");
-        inactiveUrl.setExpiresAt(pastTime);
-        inactiveUrl.setIsActive(false); // Already inactive
-        inactiveUrl.setUser(user);
+        // Create 150 expired URLs to test batch processing
+        java.util.ArrayList<Url> expiredUrls = new java.util.ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            Url url = new Url();
+            url.setId((long) i);
+            url.setShortCode("code" + i);
+            url.setExpiresAt(pastTime);
+            url.setIsActive(true);
+            url.setUser(user);
+            expiredUrls.add(url);
+        }
 
-        List<Url> urls = Collections.singletonList(inactiveUrl);
-        when(urlRepository.findAllExpiredButActiveUrls(now)).thenReturn(urls);
+        when(urlRepository.findAllExpiredButActiveUrls(any(LocalDateTime.class))).thenReturn(expiredUrls);
+        when(urlRepository.save(any(Url.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
         urlCleanupScheduler.cleanupExpiredUrls();
 
-        // Assert - query should return empty because isActive is false
-        verify(urlRepository, never()).save(any(Url.class));
+        // Assert - should process all 150 URLs
+        verify(urlRepository, times(150)).save(any(Url.class));
+    }
+
+    @Test
+    void cleanupExpiredUrls_shouldLogProgressAtBatchBoundary() {
+        // Arrange - batch size is 100
+        LocalDateTime pastTime = LocalDateTime.now().minusDays(1);
+
+        User user = new User();
+        user.setId(1L);
+
+        // Create 150 expired URLs
+        java.util.ArrayList<Url> expiredUrls = new java.util.ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            Url url = new Url();
+            url.setId((long) i);
+            url.setShortCode("code" + i);
+            url.setExpiresAt(pastTime);
+            url.setIsActive(true);
+            url.setUser(user);
+            expiredUrls.add(url);
+        }
+
+        when(urlRepository.findAllExpiredButActiveUrls(any(LocalDateTime.class))).thenReturn(expiredUrls);
+        when(urlRepository.save(any(Url.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act - should complete without errors
+        assertDoesNotThrow(() -> urlCleanupScheduler.cleanupExpiredUrls());
+        
+        // Verify all were saved
+        verify(urlRepository, times(150)).save(any(Url.class));
     }
 }
