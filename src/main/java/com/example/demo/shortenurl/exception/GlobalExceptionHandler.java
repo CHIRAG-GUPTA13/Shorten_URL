@@ -1,6 +1,7 @@
 package com.example.demo.shortenurl.exception;
 
 import com.example.demo.shortenurl.dto.ApiResponse;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -63,6 +64,24 @@ public class GlobalExceptionHandler {
         
         ApiResponse<Object> response = ApiResponse.error(HttpStatus.UNAUTHORIZED.value(), ex.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    /**
+     * Handle RateLimitExceededException - returns 429 status code.
+     * Includes rate limit headers in the response.
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Object>> handleRateLimitExceededException(
+            RateLimitExceededException ex, HttpServletResponse response) {
+        logger.warn("Rate limit exceeded: {}", ex.getMessage());
+        
+        // Add rate limit headers
+        response.setHeader("X-RateLimit-Limit", String.valueOf(ex.getLimit()));
+        response.setHeader("X-RateLimit-Remaining", String.valueOf(ex.getRemaining()));
+        response.setHeader("X-RateLimit-Retry-After", String.valueOf(ex.getRetryAfterSeconds()));
+        
+        ApiResponse<Object> apiResponse = ApiResponse.error(HttpStatus.TOO_MANY_REQUESTS.value(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(apiResponse);
     }
 
     /**
