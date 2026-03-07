@@ -16,8 +16,11 @@ import com.example.demo.shortenurl.repository.UrlRepository;
 import com.example.demo.shortenurl.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -31,21 +34,30 @@ import java.util.stream.Collectors;
 public class UrlService {
 
     private static final Logger logger = LoggerFactory.getLogger(UrlService.class);
+    private static final String CACHE_KEY_PREFIX = "url:";
 
     private final UrlRepository urlRepository;
     private final UserRepository userRepository;
     private final ClickEventRepository clickEventRepository;
     private final UrlPreferenceService urlPreferenceService;
     private final CodePoolRepository codePoolRepository;
+    private final StringRedisTemplate redisTemplate;
+    
+    @Value("${app.cache.redis.enabled:true}")
+    private boolean cacheEnabled;
+    
+    @Value("${app.cache.url.ttl:86400}")
+    private long cacheTtlSeconds;
     
     public UrlService(UrlRepository urlRepository, UserRepository userRepository, 
                       ClickEventRepository clickEventRepository, UrlPreferenceService urlPreferenceService,
-                      CodePoolRepository codePoolRepository) {
+                      CodePoolRepository codePoolRepository, StringRedisTemplate redisTemplate) {
         this.urlRepository = urlRepository;
         this.userRepository = userRepository;
         this.clickEventRepository = clickEventRepository;
         this.urlPreferenceService = urlPreferenceService;
         this.codePoolRepository = codePoolRepository;
+        this.redisTemplate = redisTemplate;
     }
 
     /**
@@ -283,9 +295,11 @@ public class UrlService {
     }
 
     /**
-     * Get the original URL from a short code.
-     * Only resolves URLs where isActive is true.
-     * Returns error if URL has expired.
+     * Get the original URL from a short code using Cache-Aside pattern.
+     * 1. Check Redis cache first
+     * 2. On cache miss, query DB
+     * 3. Store result in cache (if valid)
+     * 4. Always perform expiry check (can't be cached reliably)
      * @param shortCode The short code to look up
      * @return ApiResponse containing the original URL
      */
@@ -293,21 +307,67 @@ public class UrlService {
         logger.info("Looking up original URL for shortCode: {}", shortCode);
         
         try {
-            // Use the new method to find active URL by short code
-            Optional<Url> urlOpt = urlRepository.findByShortCodeAndIsActiveTrue(shortCode);
+            Url url = null;
+            boolean fromCache = false;
             
-            if (urlOpt.isPresent()) {
-                Url url = urlOpt.get();
+            // Cache-Aside: Check cache first
+            if (cacheEnabled) {
+                try {
+                    String cachedUrl = redisTemplate.opsForValue().get(CACHE_KEY_PREFIX + shortCode);
+                    if (cachedUrl != null) {
+                        logger.debug("Cache HIT for shortCode: {}", shortCode);
+                        url = new Url();
+                        url.setShortCode(shortCode);
+                        url.setOriginalUrl(cachedUrl);
+                        fromCache = true;
+                    } else {
+                        logger.debug("Cache MISS for shortCode: {}", shortCode);
+                    }
+                } catch (Exception e) {
+                    // Redis error - fall back to DB, log warning
+                    logger.warn("Redis error, falling back to DB for shortCode: {}", shortCode, e);
+                }
+            }
+            
+            // Cache miss - query database
+            if (url == null) {
+                Optional<Url> urlOpt = urlRepository.findByShortCodeAndIsActiveTrue(shortCode);
+                
+                if (urlOpt.isPresent()) {
+                    url = urlOpt.get();
+                    
+                    // Cache the URL (only if active and not expired)
+                    if (cacheEnabled && isUrlCacheable(url)) {
+                        try {
+                            redisTemplate.opsForValue().set(
+                                CACHE_KEY_PREFIX + shortCode, 
+                                url.getOriginalUrl(), 
+                                Duration.ofSeconds(cacheTtlSeconds)
+                            );
+                            logger.debug("Cached URL for shortCode: {} with TTL: {}s", shortCode, cacheTtlSeconds);
+                        } catch (Exception e) {
+                            logger.warn("Failed to cache URL for shortCode: {}", shortCode, e);
+                        }
+                    }
+                }
+            }
+            
+            if (url != null) {
                 logger.debug("Found URL with shortCode: {}, isActive: {}, expiresAt: {}", 
                     shortCode, url.getIsActive(), url.getExpiresAt());
                 
-                // Check if URL has expired
+                // Check if URL has expired (always check, even for cached URLs)
                 if (url.getExpiresAt() != null && LocalDateTime.now().isAfter(url.getExpiresAt())) {
                     logger.warn("URL with shortCode: {} has expired at: {}", shortCode, url.getExpiresAt());
+                    // Evict from cache if it was cached
+                    if (fromCache) {
+                        evictFromCache(shortCode);
+                    }
                     return ApiResponse.error(ResponseCode.URL_EXPIRED_CODE, ResponseCode.URL_EXPIRED_MESSAGE);
                 }
                 
-                logger.info("Successfully resolved shortCode: {} to originalUrl: {}", shortCode, url.getOriginalUrl());
+                logger.info("Successfully resolved shortCode: {} to originalUrl: {} (from {})", 
+                    shortCode, url.getOriginalUrl(), fromCache ? "cache" : "database");
                 return ApiResponse.success(url.getOriginalUrl());
             } else {
                 logger.warn("Short URL not found or inactive: {}", shortCode);
@@ -317,6 +377,53 @@ public class UrlService {
         } catch (Exception e) {
             logger.error("Failed to retrieve URL for shortCode: {}", shortCode, e);
             return ApiResponse.error(ResponseCode.INTERNAL_ERROR_CODE, "Failed to retrieve URL: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Check if URL should be cached.
+     * Don't cache inactive or expired URLs.
+     */
+    private boolean isUrlCacheable(Url url) {
+        if (url.getIsActive() == null || !url.getIsActive()) {
+            return false;
+        }
+        if (url.getExpiresAt() != null && LocalDateTime.now().isAfter(url.getExpiresAt())) {
+            return false;
+        }
+        return true;
+    }
+    
+    /**
+     * Evict a short code from cache.
+     * @param shortCode The short code to evict
+     */
+    public void evictFromCache(String shortCode) {
+        if (cacheEnabled) {
+            try {
+                redisTemplate.delete(CACHE_KEY_PREFIX + shortCode);
+                logger.info("Evicted shortCode {} from cache", shortCode);
+            } catch (Exception e) {
+                logger.warn("Failed to evict shortCode {} from cache", shortCode, e);
+            }
+        }
+    }
+    
+    /**
+     * Evict multiple short codes from cache.
+     * @param shortCodes List of short codes to evict
+     */
+    public void evictMultipleFromCache(List<String> shortCodes) {
+        if (cacheEnabled && shortCodes != null && !shortCodes.isEmpty()) {
+            try {
+                List<String> keys = shortCodes.stream()
+                    .map(code -> CACHE_KEY_PREFIX + code)
+                    .collect(Collectors.toList());
+                redisTemplate.delete(keys);
+                logger.info("Evicted {} short codes from cache", shortCodes.size());
+            } catch (Exception e) {
+                logger.warn("Failed to evict {} short codes from cache", shortCodes.size(), e);
+            }
         }
     }
 
@@ -349,6 +456,9 @@ public class UrlService {
                 // Soft delete - set isActive to false
                 url.setIsActive(false);
                 urlRepository.save(url);
+                
+                // Evict from cache after successful deletion
+                evictFromCache(shortCode);
                 
                 logger.info("Successfully soft deleted shortCode: {} for userId: {}", shortCode, user.getId());
                 return ApiResponse.success("URL deleted successfully", true);

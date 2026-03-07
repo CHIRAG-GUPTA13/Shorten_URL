@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
@@ -30,14 +31,18 @@ class UrlCleanupSchedulerTest {
     @Mock
     private UrlRepository urlRepository;
 
+    @Mock
+    private StringRedisTemplate stringRedisTemplate;
+
     private UrlCleanupScheduler urlCleanupScheduler;
 
     @BeforeEach
     void setUp() {
-        urlCleanupScheduler = new UrlCleanupScheduler(urlRepository);
+        urlCleanupScheduler = new UrlCleanupScheduler(urlRepository, stringRedisTemplate);
         // Set field values via reflection for testing
         ReflectionTestUtils.setField(urlCleanupScheduler, "cleanupEnabled", true);
         ReflectionTestUtils.setField(urlCleanupScheduler, "batchSize", 100);
+        ReflectionTestUtils.setField(urlCleanupScheduler, "cacheEnabled", true);
     }
 
     @Test
