@@ -40,12 +40,14 @@ public interface UrlPreferenceRepository extends JpaRepository<UrlPreference, Lo
     /**
      * Find a specific strategy preference for a user
      */
-    Optional<UrlPreference> findByUserIdAndStrategy(Long userId, UrlPreference.StrategyType strategy);
+    @Query("SELECT p FROM UrlPreference p WHERE p.userId = :userId AND p.strategy = :strategy")
+    Optional<UrlPreference> findByUserIdAndStrategy(@Param("userId") Long userId, @Param("strategy") UrlPreference.StrategyType strategy);
 
     /**
      * Find a specific strategy preference for global default
      */
-    Optional<UrlPreference> findByUserIdIsNullAndStrategy(UrlPreference.StrategyType strategy);
+    @Query("SELECT p FROM UrlPreference p WHERE p.userId IS NULL AND p.strategy = :strategy")
+    Optional<UrlPreference> findByUserIdIsNullAndStrategy(@Param("strategy") UrlPreference.StrategyType strategy);
 
     /**
      * Check if user has any specific preferences

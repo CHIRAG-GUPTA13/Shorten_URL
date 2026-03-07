@@ -20,12 +20,14 @@ public interface CodePoolRepository extends JpaRepository<CodePool, Long> {
      * Find the first available (unused) code from the pool.
      * @return Optional containing the first unused code, or empty if none available
      */
+    @Query("SELECT c FROM CodePool c WHERE c.isUsed = false ORDER BY c.createdAt ASC")
     Optional<CodePool> findFirstByIsUsedFalse();
 
     /**
      * Count unused codes in the pool.
      * @return count of unused codes
      */
+    @Query("SELECT COUNT(c) FROM CodePool c WHERE c.isUsed = false")
     long countByIsUsedFalse();
 
     /**
@@ -54,5 +56,6 @@ public interface CodePoolRepository extends JpaRepository<CodePool, Long> {
      * Find all unused codes.
      * @return list of unused codes
      */
+    @Query("SELECT c FROM CodePool c WHERE c.isUsed = false")
     List<CodePool> findByIsUsedFalse();
 }

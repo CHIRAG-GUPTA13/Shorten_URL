@@ -42,6 +42,7 @@ public class UrlService {
     private final UrlPreferenceService urlPreferenceService;
     private final CodePoolRepository codePoolRepository;
     private final StringRedisTemplate redisTemplate;
+    private final QrCodeService qrCodeService;
     
     @Value("${app.cache.redis.enabled:true}")
     private boolean cacheEnabled;
@@ -51,13 +52,15 @@ public class UrlService {
     
     public UrlService(UrlRepository urlRepository, UserRepository userRepository, 
                       ClickEventRepository clickEventRepository, UrlPreferenceService urlPreferenceService,
-                      CodePoolRepository codePoolRepository, StringRedisTemplate redisTemplate) {
+                      CodePoolRepository codePoolRepository, StringRedisTemplate redisTemplate,
+                      QrCodeService qrCodeService) {
         this.urlRepository = urlRepository;
         this.userRepository = userRepository;
         this.clickEventRepository = clickEventRepository;
         this.urlPreferenceService = urlPreferenceService;
         this.codePoolRepository = codePoolRepository;
         this.redisTemplate = redisTemplate;
+        this.qrCodeService = qrCodeService;
     }
 
     /**
@@ -459,6 +462,9 @@ public class UrlService {
                 
                 // Evict from cache after successful deletion
                 evictFromCache(shortCode);
+                
+                // Also evict QR cache
+                qrCodeService.evictQrCache(shortCode);
                 
                 logger.info("Successfully soft deleted shortCode: {} for userId: {}", shortCode, user.getId());
                 return ApiResponse.success("URL deleted successfully", true);

@@ -23,14 +23,16 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
      * @param user The user to find URLs for
      * @return List of active URLs owned by the user
      */
-    List<Url> findByUserAndIsActiveTrue(User user);
+    @Query("SELECT u FROM Url u WHERE u.user = :user AND u.isActive = true")
+    List<Url> findByUserAndIsActiveTrue(@Param("user") User user);
     
     /**
      * Find an active URL by its short code.
      * @param shortCode The short code to search for
      * @return Optional containing the URL if found and active
      */
-    Optional<Url> findByShortCodeAndIsActiveTrue(String shortCode);
+    @Query("SELECT u FROM Url u WHERE u.shortCode = :shortCode AND u.isActive = true")
+    Optional<Url> findByShortCodeAndIsActiveTrue(@Param("shortCode") String shortCode);
     
     /**
      * Check if a short code already exists in the database.

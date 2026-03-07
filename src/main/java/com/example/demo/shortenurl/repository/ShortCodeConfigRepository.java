@@ -5,6 +5,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.repository.query.Param;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -15,9 +17,11 @@ public interface ShortCodeConfigRepository extends JpaRepository<ShortCodeConfig
 
     boolean existsByCode(String code);
 
-    List<ShortCodeConfig> findByUserIdAndIsActiveTrue(Long userId);
+    @Query("SELECT s FROM ShortCodeConfig s WHERE s.user.id = :userId AND s.isActive = true")
+    List<ShortCodeConfig> findByUserIdAndIsActiveTrue(@Param("userId") Long userId);
 
-    List<ShortCodeConfig> findByStrategyAndIsActiveTrue(String strategy);
+    @Query("SELECT s FROM ShortCodeConfig s WHERE s.strategy = :strategy AND s.isActive = true")
+    List<ShortCodeConfig> findByStrategyAndIsActiveTrue(@Param("strategy") String strategy);
 
     @Query("SELECT s FROM ShortCodeConfig s WHERE s.user.id = :userId AND s.isActive = true ORDER BY s.preferenceOrder ASC")
     List<ShortCodeConfig> findUserPreferredCodes(Long userId);
