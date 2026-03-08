@@ -1,8 +1,12 @@
 package com.example.demo.shortenurl.controller;
 
-import com.example.demo.shortenurl.service.ClickEventService;
+import com.example.demo.shortenurl.dto.ApiResponse;
+import com.example.demo.shortenurl.dto.ClickEventMessage;
+import com.example.demo.shortenurl.kafka.ClickEventProducer;
 import com.example.demo.shortenurl.service.UrlService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -20,32 +25,55 @@ import java.util.Map;
 @RequestMapping("/")
 public class RedirectController {
 
-    private final UrlService urlService;
-    private final ClickEventService clickEventService;
+    private static final Logger logger = LoggerFactory.getLogger(RedirectController.class);
 
-    public RedirectController(UrlService urlService, ClickEventService clickEventService) {
+    private final UrlService urlService;
+    private final ClickEventProducer clickEventProducer;
+
+    public RedirectController(UrlService urlService, ClickEventProducer clickEventProducer) {
         this.urlService = urlService;
-        this.clickEventService = clickEventService;
+        this.clickEventProducer = clickEventProducer;
     }
 
     /**
      * Redirect to original URL from short code.
      * GET /{shortCode}
      * Performs HTTP 302 redirect to the original URL.
+     * Click events are published to Kafka asynchronously for non-blocking behavior.
      */
     @GetMapping("/{shortCode}")
     public ResponseEntity<?> redirect(@PathVariable String shortCode, HttpServletRequest request) {
         try {
-            var response = urlService.getOriginalUrl(shortCode);
+            ApiResponse<String> response = urlService.getOriginalUrl(shortCode);
             
             if (response.getCode() == 200) {
                 String originalUrl = response.getData();
                 
-                // Record click event asynchronously
-                String ipAddress = getClientIpAddress(request);
-                String userAgent = request.getHeader("User-Agent");
-                String referer = request.getHeader("Referer");
-                clickEventService.recordClick(shortCode, ipAddress, userAgent, referer);
+                // Publish click event to Kafka asynchronously (non-blocking)
+                try {
+                    String ipAddress = getClientIpAddress(request);
+                    String userAgent = request.getHeader("User-Agent");
+                    String referer = request.getHeader("Referer");
+                    
+                    // Parse device type and browser from user agent
+                    String deviceType = parseDeviceType(userAgent);
+                    String browser = parseBrowser(userAgent);
+                    
+                    // Create click event message and publish to Kafka
+                    ClickEventMessage clickEventMessage = ClickEventMessage.builder()
+                            .shortCode(shortCode)
+                            .clickedAt(Instant.now())
+                            .ipAddress(ipAddress)
+                            .deviceType(deviceType)
+                            .browser(browser)
+                            .userAgent(userAgent)
+                            .referer(referer)
+                            .build();
+                    
+                    clickEventProducer.sendClickEvent(clickEventMessage);
+                } catch (Exception e) {
+                    logger.warn("Failed to publish click event to Kafka: {}", e.getMessage());
+                }
                 
                 // Redirect to the original URL
                 return ResponseEntity.status(HttpStatus.FOUND)
@@ -53,12 +81,13 @@ public class RedirectController {
                         .build();
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Short URL not found"));
+                        .body(ApiResponse.error(response.getCode(), response.getMessage()));
             }
             
         } catch (Exception e) {
+            logger.error("Error redirecting short code {}: {}", shortCode, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", e.getMessage()));
+                    .body(ApiResponse.error(HttpStatus.INTERNAL_SERVER_ERROR.value(), "An error occurred while processing your request."));
         }
     }
     
@@ -74,5 +103,40 @@ public class RedirectController {
             ip = ip.trim().split(",")[0];
         }
         return ip;
+    }
+    
+    private String parseDeviceType(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("mobile") || ua.contains("android") || ua.contains("iphone") || 
+            ua.contains("ipod") || ua.contains("tablet") || ua.contains("ipad")) {
+            return "Mobile";
+        } else if (ua.contains("tablet") || ua.contains("ipad")) {
+            return "Tablet";
+        }
+        return "Desktop";
+    }
+    
+    private String parseBrowser(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("chrome")) {
+            return "Chrome";
+        } else if (ua.contains("firefox")) {
+            return "Firefox";
+        } else if (ua.contains("safari") && !ua.contains("chrome")) {
+            return "Safari";
+        } else if (ua.contains("edge")) {
+            return "Edge";
+        } else if (ua.contains("opera") || ua.contains("opr")) {
+            return "Opera";
+        } else if (ua.contains("msie") || ua.contains("trident")) {
+            return "Internet Explorer";
+        }
+        return "Unknown";
     }
 }

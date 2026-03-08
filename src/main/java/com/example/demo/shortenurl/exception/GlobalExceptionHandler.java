@@ -85,6 +85,51 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handle Redis connection failures - returns 503 status code.
+     */
+    @ExceptionHandler(org.springframework.data.redis.RedisConnectionFailureException.class)
+    public ResponseEntity<ApiResponse<Object>> handleRedisConnectionException(
+            org.springframework.data.redis.RedisConnectionFailureException ex) {
+        logger.error("Redis connection failure: {}", ex.getMessage());
+        
+        ApiResponse<Object> response = ApiResponse.error(
+            HttpStatus.SERVICE_UNAVAILABLE.value(), 
+            "Service temporarily unavailable. Please try again later."
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+    }
+
+    /**
+     * Handle Redis exceptions - returns 503 status code.
+     */
+    @ExceptionHandler(org.springframework.data.redis.RedisSystemException.class)
+    public ResponseEntity<ApiResponse<Object>> handleRedisSystemException(
+            org.springframework.data.redis.RedisSystemException ex) {
+        logger.error("Redis system error: {}", ex.getMessage());
+        
+        ApiResponse<Object> response = ApiResponse.error(
+            HttpStatus.SERVICE_UNAVAILABLE.value(), 
+            "Service temporarily unavailable. Please try again later."
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+    }
+
+    /**
+     * Handle database connection failures - returns 503 status code.
+     */
+    @ExceptionHandler(org.springframework.dao.DataAccessResourceFailureException.class)
+    public ResponseEntity<ApiResponse<Object>> handleDataAccessResourceException(
+            org.springframework.dao.DataAccessResourceFailureException ex) {
+        logger.error("Database connection failure: {}", ex.getMessage());
+        
+        ApiResponse<Object> response = ApiResponse.error(
+            HttpStatus.SERVICE_UNAVAILABLE.value(), 
+            "Service temporarily unavailable. Please try again later."
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+    }
+
+    /**
      * Handle generic Exception - returns 500 status code.
      */
     @ExceptionHandler(Exception.class)
