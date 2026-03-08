@@ -3,6 +3,7 @@ package com.example.demo.shortenurl.repository;
 import com.example.demo.shortenurl.entity.Url;
 import com.example.demo.shortenurl.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -63,4 +64,21 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
      * @return Count of expired URLs
      */
     long countByExpiresAtBefore(LocalDateTime now);
+    
+    /**
+     * Soft delete a URL by setting isActive to false.
+     * @param id The URL ID to soft delete
+     */
+    @Modifying
+    @Query("UPDATE Url u SET u.isActive = false WHERE u.id = :id")
+    void softDelete(@Param("id") Long id);
+    
+    /**
+     * Find all URLs that are active and have expired.
+     * Only returns URLs that are currently active but have passed their expiration time.
+     * @param now The current time to compare against
+     * @return List of expired but still active URLs
+     */
+    @Query("SELECT u FROM Url u WHERE u.isActive = true AND u.expiresAt IS NOT NULL AND u.expiresAt < :now")
+    List<Url> findExpiredUrls(@Param("now") LocalDateTime now);
 }

@@ -31,6 +31,9 @@ public class Url {
     @Column(name = "ISACTIVE")
     private Boolean isActive = true;
 
+    @Column(name = "UPDATEDAT")
+    private LocalDateTime updatedAt;
+
     @Column(name = "PASSWORDHASH", length = 255)
     private String passwordHash;
 
@@ -54,6 +57,14 @@ public class Url {
 
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
 
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
