@@ -64,13 +64,6 @@ public class AuthController {
     public ResponseEntity<Map<String, Object>> register(@RequestBody RegisterRequest registerRequest) {
         Map<String, Object> response = new HashMap<>();
 
-        // Validate passwords match
-        if (!registerRequest.getPassword().equals(registerRequest.getConfirmPassword())) {
-            response.put("success", false);
-            response.put("message", "Passwords do not match");
-            return ResponseEntity.badRequest().body(response);
-        }
-
         // Check if email already exists
         if (userRepository.findByEmail(registerRequest.getEmail()).isPresent()) {
             response.put("success", false);
