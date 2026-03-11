@@ -1,5 +1,6 @@
 package com.example.demo.shortenurl.controller;
 
+import com.example.demo.shortenurl.dto.ApiResponse;
 import com.example.demo.shortenurl.dto.QrCodeResponseDto;
 import com.example.demo.shortenurl.service.QrCodeService;
 import org.slf4j.Logger;
@@ -38,11 +39,11 @@ public class QrCodeController {
      * @return JSON response with QR code data
      */
     @GetMapping("/{shortCode}/qr")
-    public ResponseEntity<QrCodeResponseDto> getQrCode(@PathVariable String shortCode) {
+    public ApiResponse<QrCodeResponseDto> getQrCode(@PathVariable String shortCode) {
         logger.info("GET /api/urls/{}/qr", shortCode);
         
         QrCodeResponseDto qrCode = qrCodeService.generateQrCode(shortCode);
-        return ResponseEntity.ok(qrCode);
+        return ApiResponse.success(qrCode);
     }
 
     /**

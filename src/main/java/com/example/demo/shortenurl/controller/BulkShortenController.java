@@ -1,6 +1,7 @@
 package com.example.demo.shortenurl.controller;
 
 import com.example.demo.shortenurl.config.CustomUserDetails;
+import com.example.demo.shortenurl.dto.ApiResponse;
 import com.example.demo.shortenurl.dto.BulkShortenJobDto;
 import com.example.demo.shortenurl.dto.BulkShortenResultDto;
 import com.example.demo.shortenurl.service.BulkShortenService;
@@ -40,7 +41,7 @@ public class BulkShortenController {
      * @return Job status with job ID
      */
     @PostMapping("/upload")
-    public ResponseEntity<BulkShortenJobDto> uploadCsv(
+    public ApiResponse<BulkShortenJobDto> uploadCsv(
             @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal CustomUserDetails user) throws IOException {
         
@@ -53,7 +54,7 @@ public class BulkShortenController {
         String csvContent = new String(file.getBytes(), StandardCharsets.UTF_8);
         BulkShortenJobDto job = bulkShortenService.submitBulkJob(csvContent, user.getUser());
         
-        return ResponseEntity.ok(job);
+        return ApiResponse.success("File uploaded and job started", job);
     }
 
     /**
@@ -64,7 +65,7 @@ public class BulkShortenController {
      * @return Job status with job ID
      */
     @PostMapping("/submit")
-    public ResponseEntity<BulkShortenJobDto> submitBulkJob(
+    public ApiResponse<BulkShortenJobDto> submitBulkJob(
             @RequestBody List<String> urls,
             @AuthenticationPrincipal CustomUserDetails user) {
         
@@ -77,7 +78,7 @@ public class BulkShortenController {
         String csvContent = String.join("\n", urls);
         BulkShortenJobDto job = bulkShortenService.submitBulkJob(csvContent, user.getUser());
         
-        return ResponseEntity.ok(job);
+        return ApiResponse.success("Bulk job submitted successfully", job);
     }
 
     /**
@@ -87,7 +88,7 @@ public class BulkShortenController {
      * @return Job status
      */
     @GetMapping("/job/{jobId}")
-    public ResponseEntity<BulkShortenJobDto> getJobStatus(
+    public ApiResponse<BulkShortenJobDto> getJobStatus(
             @PathVariable String jobId,
             @AuthenticationPrincipal CustomUserDetails user) {
         
@@ -95,7 +96,7 @@ public class BulkShortenController {
         
         BulkShortenJobDto job = bulkShortenService.getJobStatus(jobId);
         
-        return ResponseEntity.ok(job);
+        return ApiResponse.success(job);
     }
 
     /**
@@ -105,7 +106,7 @@ public class BulkShortenController {
      * @return Job results with all shortened URLs
      */
     @GetMapping("/job/{jobId}/results")
-    public ResponseEntity<BulkShortenResultDto> getJobResults(
+    public ApiResponse<BulkShortenResultDto> getJobResults(
             @PathVariable String jobId,
             @AuthenticationPrincipal CustomUserDetails user) {
         
@@ -113,7 +114,7 @@ public class BulkShortenController {
         
         BulkShortenResultDto results = bulkShortenService.getJobResults(jobId);
         
-        return ResponseEntity.ok(results);
+        return ApiResponse.success(results);
     }
 
     /**
@@ -123,13 +124,13 @@ public class BulkShortenController {
      * @return List of user's bulk jobs
      */
     @GetMapping("/jobs")
-    public ResponseEntity<List<BulkShortenJobDto>> getUserJobs(
+    public ApiResponse<List<BulkShortenJobDto>> getUserJobs(
             @AuthenticationPrincipal CustomUserDetails user) {
         
         logger.info("Getting all jobs for user: {}", user.getUsername());
         
         List<BulkShortenJobDto> jobs = bulkShortenService.getUserJobs(user.getUser().getId());
         
-        return ResponseEntity.ok(jobs);
+        return ApiResponse.success(jobs);
     }
 }
