@@ -14,71 +14,108 @@ import java.util.Optional;
 
 @Repository
 public interface UrlRepository extends JpaRepository<Url, Long> {
-    
+
     Optional<Url> findByShortCode(String shortCode);
-    
+
     List<Url> findByUserId(Long userId);
-    
+
     /**
      * Find all active URLs for a specific user.
+     * 
      * @param user The user to find URLs for
      * @return List of active URLs owned by the user
      */
     @Query("SELECT u FROM Url u WHERE u.user = :user AND u.isActive = true")
     List<Url> findByUserAndIsActiveTrue(@Param("user") User user);
-    
+
     /**
      * Find an active URL by its short code.
+     * 
      * @param shortCode The short code to search for
      * @return Optional containing the URL if found and active
      */
     @Query("SELECT u FROM Url u WHERE u.shortCode = :shortCode AND u.isActive = true")
     Optional<Url> findByShortCodeAndIsActiveTrue(@Param("shortCode") String shortCode);
-    
+
     /**
      * Check if a short code already exists in the database.
      */
     boolean existsByShortCode(String shortCode);
-    
+
     /**
      * Find all URLs that have expired (expiresAt is not null and is in the past).
      * This is used by the scheduled cleanup task.
+     * 
      * @param now The current time to compare against
      * @return List of expired URLs
      */
     @Query("SELECT u FROM Url u WHERE u.expiresAt IS NOT NULL AND u.expiresAt < :now")
     List<Url> findAllExpiredUrls(@Param("now") LocalDateTime now);
-    
+
     /**
      * Find all URLs that are active and have expired.
-     * Only returns URLs that are currently active but have passed their expiration time.
+     * Only returns URLs that are currently active but have passed their expiration
+     * time.
+     * 
      * @param now The current time to compare against
      * @return List of expired but still active URLs
      */
     @Query("SELECT u FROM Url u WHERE u.isActive = true AND u.expiresAt IS NOT NULL AND u.expiresAt < :now")
     List<Url> findAllExpiredButActiveUrls(@Param("now") LocalDateTime now);
-    
+
     /**
      * Count all URLs that have expired.
+     * 
      * @param now The current time to compare against
      * @return Count of expired URLs
      */
     long countByExpiresAtBefore(LocalDateTime now);
-    
+
     /**
      * Soft delete a URL by setting isActive to false.
+     * 
      * @param id The URL ID to soft delete
      */
     @Modifying
     @Query("UPDATE Url u SET u.isActive = false WHERE u.id = :id")
     void softDelete(@Param("id") Long id);
-    
+
     /**
      * Find all URLs that are active and have expired.
-     * Only returns URLs that are currently active but have passed their expiration time.
+     * Only returns URLs that are currently active but have passed their expiration
+     * time.
+     * 
      * @param now The current time to compare against
      * @return List of expired but still active URLs
      */
     @Query("SELECT u FROM Url u WHERE u.isActive = true AND u.expiresAt IS NOT NULL AND u.expiresAt < :now")
     List<Url> findExpiredUrls(@Param("now") LocalDateTime now);
+
+    // ===== New methods for stats endpoints =====
+
+    /**
+     * Count all URLs for a specific user (regardless of active status).
+     * 
+     * @param userId The user ID
+     * @return Total count of URLs owned by the user
+     */
+    long countByUserId(Long userId);
+
+    /**
+     * Count active URLs for a specific user.
+     * 
+     * @param userId The user ID
+     * @return Count of active URLs
+     */
+    long countByUserIdAndIsActiveTrue(Long userId);
+
+    /**
+     * Count active but expired URLs for a specific user.
+     * 
+     * @param userId The user ID
+     * @param now    The current time
+     * @return Count of active but expired URLs
+     */
+    @Query("SELECT COUNT(u) FROM Url u WHERE u.user.id = :userId AND u.isActive = true AND u.expiresAt IS NOT NULL AND u.expiresAt < :now")
+    long countActiveExpiredByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }
