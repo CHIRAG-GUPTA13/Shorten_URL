@@ -159,17 +159,8 @@ public class UrlController {
         try {
             ApiResponse<String> response = urlService.getOriginalUrl(shortCode);
 
-            // Record click event asynchronously if the URL was found successfully
-            if (response.getCode() == 200) {
-                String ipAddress = getClientIpAddress(request);
-                String userAgent = request.getHeader("User-Agent");
-                String referer = request.getHeader("Referer");
-
-                // Record click asynchronously - this won't block the response
-                clickEventService.recordClick(shortCode, ipAddress, userAgent, referer);
-                logger.debug("Triggered async click recording for shortCode: {}", shortCode);
-            }
-
+            // The click event is now handled only in RedirectController for actual redirections
+            // frontend calls to this API are for resolving metadata and should not count as clicks.
             logger.info("GET /api/urls/{} - Completed with status code: {}", shortCode, response.getCode());
             return response;
 

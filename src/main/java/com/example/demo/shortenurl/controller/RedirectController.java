@@ -110,11 +110,11 @@ public class RedirectController {
             return "Unknown";
         }
         String ua = userAgent.toLowerCase();
-        if (ua.contains("mobile") || ua.contains("android") || ua.contains("iphone") || 
-            ua.contains("ipod") || ua.contains("tablet") || ua.contains("ipad")) {
-            return "Mobile";
-        } else if (ua.contains("tablet") || ua.contains("ipad")) {
+        if (ua.contains("tablet") || ua.contains("ipad")) {
             return "Tablet";
+        } else if (ua.contains("mobile") || ua.contains("android") || ua.contains("iphone") || 
+            ua.contains("ipod")) {
+            return "Mobile";
         }
         return "Desktop";
     }

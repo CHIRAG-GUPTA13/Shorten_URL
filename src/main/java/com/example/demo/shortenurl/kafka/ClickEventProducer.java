@@ -8,6 +8,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
 
+import org.springframework.scheduling.annotation.Async;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
@@ -17,6 +18,7 @@ public class ClickEventProducer {
 
     private final KafkaTemplate<String, ClickEventMessage> kafkaTemplate;
 
+    @Async
     public void sendClickEvent(ClickEventMessage message) {
         CompletableFuture<SendResult<String, ClickEventMessage>> future = 
             kafkaTemplate.send(KafkaConfig.CLICK_EVENTS_TOPIC, message.getShortCode(), message);
